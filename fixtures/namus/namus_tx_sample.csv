@@ -1,0 +1,3 @@
+case_id,person_name,status,missing_date,state,county,agency,location_text,latitude,longitude,narrative
+TX-1001,Jamie Doe,open,2024-05-02T00:00:00Z,TX,Travis,Travis County SO,Near Barton Creek Greenbelt,30.263,-97.772,Subject reported missing after solo trail run.
+TX-1002,Alex Roe,resolved,2023-11-11T00:00:00Z,TX,El Paso,El Paso PD,Franklin Mountains area,,,Vehicle located near trailhead; subject later recovered.

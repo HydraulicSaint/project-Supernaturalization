@@ -1,0 +1,11 @@
+<rss version="2.0">
+  <channel>
+    <title>NPS Missing Person Notices</title>
+    <item>
+      <title>Search Ongoing for Missing Hiker in Backcountry</title>
+      <link>https://www.nps.gov/example/missing-hiker</link>
+      <description>Rangers are searching rugged wilderness terrain. Public asked to report sightings.</description>
+      <pubDate>Mon, 15 Jul 2024 10:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
