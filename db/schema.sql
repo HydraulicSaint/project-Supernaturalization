@@ -94,8 +94,10 @@ CREATE TABLE location_event (
   confidence_score NUMERIC(5,4),
   is_centroid BOOLEAN NOT NULL DEFAULT false,
   provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
+  event_fingerprint TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX location_event_fingerprint_uidx ON location_event(event_fingerprint);
 CREATE INDEX location_event_geom_gix ON location_event USING GIST (geometry);
 
 CREATE TABLE environment_snapshot (
@@ -132,6 +134,7 @@ CREATE TABLE derived_metric (
 
 CREATE TABLE ingestion_job_run (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_key TEXT NOT NULL,
   job_type TEXT NOT NULL,
   source_system TEXT,
   status TEXT NOT NULL,
@@ -141,6 +144,22 @@ CREATE TABLE ingestion_job_run (
   trigger_mode TEXT NOT NULL,
   summary JSONB NOT NULL DEFAULT '{}'::jsonb,
   error_message TEXT
+);
+CREATE INDEX ingestion_job_run_job_key_idx ON ingestion_job_run(job_key, started_at DESC);
+
+CREATE TABLE reconciliation_decision (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_run_id UUID REFERENCES ingestion_job_run(id) ON DELETE SET NULL,
+  snapshot_id UUID REFERENCES source_snapshot(id) ON DELETE SET NULL,
+  source_record_id UUID REFERENCES source_record(id) ON DELETE SET NULL,
+  case_id UUID REFERENCES case_canonical(id) ON DELETE SET NULL,
+  decision_type TEXT NOT NULL,
+  inputs_considered JSONB NOT NULL DEFAULT '{}'::jsonb,
+  rule_triggered TEXT NOT NULL,
+  previous_value JSONB,
+  new_value JSONB,
+  confidence NUMERIC(5,4),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE ingestion_issue (
