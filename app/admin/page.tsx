@@ -1,40 +1,35 @@
 async function load<T>(path: string): Promise<T> {
   const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}${path}`, { cache: "no-store" });
-  const data = await res.json();
-  return data.data;
+  return res.json();
 }
 
 export default async function AdminPage() {
-  const [cases, runs, issues, decisions, enrichment, layers, conflicts, extractions] = await Promise.all([
-    load<any[]>("/api/internal/cases"),
-    load<any[]>("/api/internal/ingestion/runs"),
-    load<any[]>("/api/internal/ingestion/issues?reviewed=unreviewed"),
-    load<any[]>("/api/internal/ingestion/decisions"),
-    load<any[]>("/api/internal/enrichment/snapshots"),
-    load<any[]>("/api/internal/reference/layers"),
-    load<any[]>("/api/internal/conflicts?reviewStatus=unreviewed"),
-    load<any[]>("/api/internal/source-extractions")
+  const [issues, conflicts, stale, lowConfidence, decisions] = await Promise.all([
+    load<any>("/api/internal/ingestion/issues?reviewed=unreviewed&sort=severity&limit=20"),
+    load<any>("/api/internal/conflicts?reviewStatus=unreviewed&sort=severity&limit=20"),
+    load<any>("/api/internal/enrichment/snapshots?stale=true&limit=20"),
+    load<any>("/api/internal/source-extractions?confidenceMax=0.75&limit=20"),
+    load<any>("/api/internal/ingestion/decisions?limit=20")
   ]);
 
   return (
     <main style={{ padding: 24, fontFamily: "sans-serif" }}>
-      <h1>Ingestion Inspection Console</h1>
-      <h2>Canonical Cases ({cases.length})</h2>
-      <pre>{JSON.stringify(cases.slice(0, 5), null, 2)}</pre>
-      <h2>Reference Layer Inventory ({layers.length})</h2>
-      <pre>{JSON.stringify(layers.slice(0, 10), null, 2)}</pre>
-      <h2>Stale/Current Enrichment Snapshots ({enrichment.length})</h2>
-      <pre>{JSON.stringify(enrichment.slice(0, 10), null, 2)}</pre>
-      <h2>Merge Decisions ({decisions.length})</h2>
-      <pre>{JSON.stringify(decisions.slice(0, 10), null, 2)}</pre>
-      <h2>Conflicts ({conflicts.length})</h2>
-      <pre>{JSON.stringify(conflicts.slice(0, 10), null, 2)}</pre>
-      <h2>Source Extraction Review ({extractions.length})</h2>
-      <pre>{JSON.stringify(extractions.slice(0, 10), null, 2)}</pre>
-      <h2>Ingestion Issues ({issues.length})</h2>
-      <pre>{JSON.stringify(issues.slice(0, 10), null, 2)}</pre>
-      <h2>Ingestion Runs ({runs.length})</h2>
-      <pre>{JSON.stringify(runs.slice(0, 5), null, 2)}</pre>
+      <h1>Operator Review Queues</h1>
+
+      <h2>Unreviewed Issues</h2>
+      <ul>{issues.data.map((i: any) => <li key={i.id}><a href={`/api/internal/cases/${i.source_record_id || ""}`}>{i.issue_type}</a> · {i.severity} · {i.created_at}</li>)}</ul>
+
+      <h2>Unreviewed Conflicts</h2>
+      <ul>{conflicts.data.map((c: any) => <li key={c.id}><a href={`/api/internal/cases/${c.case_id}`}>{c.conflict_type}</a> · {c.severity} · {c.created_at}</li>)}</ul>
+
+      <h2>Stale Enrichment</h2>
+      <ul>{stale.data.map((s: any) => <li key={s.id}><a href={`/api/internal/cases/${s.case_id}`}>{s.case_id}</a> · {s.captured_at}</li>)}</ul>
+
+      <h2>Recent Low-confidence Extractions</h2>
+      <ul>{lowConfidence.data.map((e: any) => <li key={e.id}>{e.source_channel} · {e.parse_confidence} · <a href={e.source_uri}>{e.source_record_key}</a></li>)}</ul>
+
+      <h2>Recent Reconciliation Decisions</h2>
+      <ul>{decisions.data.map((d: any) => <li key={d.id}><a href={`/api/internal/cases/${d.case_id}`}>{d.decision_type}</a> · {d.rule_triggered}</li>)}</ul>
     </main>
   );
 }

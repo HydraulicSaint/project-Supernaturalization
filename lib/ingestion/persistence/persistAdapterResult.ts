@@ -2,12 +2,14 @@ import { PoolClient } from "pg";
 
 import { db } from "@/lib/db";
 import { enrichLocationFromPointWkt } from "@/lib/ingestion/enrichment/geospatialEnrichment";
+import { detectContradictions } from "@/lib/ingestion/normalization/conflictPrimitives";
 import { recordHash } from "@/lib/ingestion/utils/hash";
 import { AdapterResult, CanonicalCandidate } from "@/lib/ingestion/types";
 
 type PersistOptions = {
   jobRunId?: string;
   enrichLocation?: typeof enrichLocationFromPointWkt;
+  actorId?: string;
 };
 
 type PersistResult = {
@@ -41,12 +43,13 @@ async function insertDecision(
     previousValue?: unknown;
     newValue?: unknown;
     confidence?: number;
+    actorId?: string;
   }
 ) {
   await client.query(
     `INSERT INTO reconciliation_decision
-      (job_run_id, snapshot_id, source_record_id, case_id, decision_type, inputs_considered, rule_triggered, previous_value, new_value, confidence)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      (job_run_id, snapshot_id, source_record_id, case_id, decision_type, inputs_considered, rule_triggered, previous_value, new_value, confidence, actor_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [
       input.jobRunId ?? null,
       input.snapshotId,
@@ -57,7 +60,8 @@ async function insertDecision(
       input.ruleTriggered,
       input.previousValue === undefined ? null : JSON.stringify(input.previousValue),
       input.newValue === undefined ? null : JSON.stringify(input.newValue),
-      input.confidence ?? null
+      input.confidence ?? null,
+      input.actorId ?? null
     ]
   );
 }
@@ -66,6 +70,7 @@ function fieldUpdates(existing: Record<string, unknown>, candidate: CanonicalCan
   const updates: Record<string, unknown> = {};
   if (!existing.display_name && candidate.displayName) updates.display_name = candidate.displayName;
   if (candidate.caseStatus && existing.case_status !== "resolved") updates.case_status = candidate.caseStatus;
+  if (!existing.outcome && candidate.outcome) updates.outcome = candidate.outcome;
   if (!existing.missing_from && candidate.missingFrom) updates.missing_from = candidate.missingFrom;
   if (!existing.missing_to && candidate.missingTo) updates.missing_to = candidate.missingTo;
   if ((candidate.narrativeSummary?.length ?? 0) > ((existing.narrative_summary as string | null)?.length ?? 0)) {
@@ -89,22 +94,28 @@ async function insertCaseConflict(
     sourceRecordId?: string;
     previousValue: unknown;
     nextValue: unknown;
+    normalizedPreviousValue?: unknown;
+    normalizedNextValue?: unknown;
     severity?: string;
   }
 ) {
   if (input.previousValue === input.nextValue || input.previousValue == null || input.nextValue == null) return;
   await client.query(
-    `INSERT INTO case_conflict (case_id, conflict_type, source_record_ids, competing_values, severity)
-     VALUES ($1,$2,$3,$4,$5)`,
+    `INSERT INTO case_conflict (case_id, conflict_type, source_record_ids, competing_values, normalized_competing_values, severity)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
     [
       input.caseId,
       input.conflictType,
       input.sourceRecordId ? [input.sourceRecordId] : [],
       JSON.stringify({ previous: input.previousValue, incoming: input.nextValue }),
+      input.normalizedPreviousValue !== undefined || input.normalizedNextValue !== undefined
+        ? JSON.stringify({ previous: input.normalizedPreviousValue ?? null, incoming: input.normalizedNextValue ?? null })
+        : null,
       input.severity ?? "medium"
     ]
   );
 }
+
 
 export async function persistAdapterResult(result: AdapterResult, options: PersistOptions = {}): Promise<PersistResult> {
   if (!db) {
@@ -239,8 +250,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
       if (!caseRes.rowCount) {
         const inserted = await client.query(
           `INSERT INTO case_canonical
-            (canonical_case_ref, display_name, demographics, missing_from, missing_to, case_status, narrative_summary, source_confidence, completeness_score, anomaly_tags, motif_tags, jurisdiction, agency, provenance, inferred_fields)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            (canonical_case_ref, display_name, demographics, missing_from, missing_to, case_status, outcome, narrative_summary, source_confidence, completeness_score, anomaly_tags, motif_tags, jurisdiction, agency, provenance, inferred_fields)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
            ON CONFLICT (canonical_case_ref)
            DO UPDATE SET updated_at = now()
            RETURNING id`,
@@ -251,6 +262,7 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
             candidate.missingFrom ?? null,
             candidate.missingTo ?? null,
             candidate.caseStatus ?? null,
+            candidate.outcome ?? null,
             candidate.narrativeSummary ?? null,
             candidate.sourceConfidence ?? null,
             candidate.completenessScore ?? null,
@@ -269,6 +281,9 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
         }
       } else {
         caseId = caseRes.rows[0].id as string;
+        for (const conflict of detectContradictions(caseRes.rows[0], candidate)) {
+          await insertCaseConflict(client, { caseId, sourceRecordId, ...conflict });
+        }
         const updates = fieldUpdates(caseRes.rows[0], candidate);
         if (Object.keys(updates).length) {
           const setClause = Object.keys(updates)
@@ -280,36 +295,6 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
 
           for (const [field, newValue] of Object.entries(updates)) {
             const previousValue = caseRes.rows[0][field];
-            if (field === "case_status") {
-              await insertCaseConflict(client, {
-                caseId,
-                sourceRecordId,
-                conflictType: "conflicting_status",
-                previousValue,
-                nextValue: newValue,
-                severity: "high"
-              });
-            }
-            if (field === "missing_from") {
-              await insertCaseConflict(client, {
-                caseId,
-                sourceRecordId,
-                conflictType: "conflicting_missing_date",
-                previousValue,
-                nextValue: newValue,
-                severity: "high"
-              });
-            }
-            if (field === "narrative_summary") {
-              await insertCaseConflict(client, {
-                caseId,
-                sourceRecordId,
-                conflictType: "conflicting_location_description",
-                previousValue,
-                nextValue: newValue,
-                severity: "medium"
-              });
-            }
             await insertDecision(client, {
               jobRunId: options.jobRunId,
               snapshotId,
@@ -321,6 +306,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
               previousValue: caseRes.rows[0][field],
               newValue,
               confidence: candidate.sourceConfidence
+              ,
+              actorId: options.actorId
             });
           }
         }
@@ -340,7 +327,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
         ruleTriggered: decisionRule,
         previousValue: null,
         newValue: { caseId },
-        confidence: candidate.sourceConfidence
+        confidence: candidate.sourceConfidence,
+        actorId: options.actorId
       });
 
       if (sourceRecordId) {
@@ -462,6 +450,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
           ruleTriggered: "adapter_reported_issue",
           newValue: issue,
           confidence: 0.5
+          ,
+          actorId: options.actorId
         });
       }
     }

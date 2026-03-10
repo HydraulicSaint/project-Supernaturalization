@@ -3,9 +3,10 @@ import { listSourceExtractionReview } from "@/lib/repositories/ingestionRunsRepo
 
 export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams;
-  const data = await listSourceExtractionReview({
+  return NextResponse.json(await listSourceExtractionReview({
     sourceType: search.get("sourceType") ?? undefined,
-    confidenceMin: search.get("confidenceMin") ? Number(search.get("confidenceMin")) : undefined
-  });
-  return NextResponse.json({ data });
+    confidenceMax: search.get("confidenceMax") ? Number(search.get("confidenceMax")) : 0.8,
+    limit: search.get("limit") ? Number(search.get("limit")) : undefined,
+    offset: search.get("offset") ? Number(search.get("offset")) : undefined
+  }));
 }

@@ -17,7 +17,7 @@ Evidence-first ingestion and normalization foundation for a geospatial missing-p
 ## Repository Structure
 
 - `app/api/internal/*`: minimal internal APIs for canonical case inspection, run/issues audit, and enrichment trigger.
-- `app/admin/page.tsx`: minimal inspection UI.
+- `app/admin/page.tsx`: queue-oriented internal review console.
 - `lib/ingestion/adapters`: CSV, RSS, HTML scaffold, PDF scaffold, manual JSON scaffold.
 - `lib/ingestion/normalization`: canonical merge logic.
 - `lib/ingestion/diff`: snapshot diffing by key+hash.
@@ -97,9 +97,12 @@ npm run import:reference-gis
 - `GET /api/internal/cases/:id`
 - `GET /api/internal/ingestion/runs`
 - `GET /api/internal/ingestion/issues`
+- `GET /api/internal/conflicts`
 - `GET /api/internal/ingestion/decisions`
 - `GET /api/internal/enrichment/snapshots`
-- `POST /api/internal/enrichment/rerun` `{ "caseId": "..." }`
+- `GET /api/internal/source-extractions`
+- `POST /api/internal/enrichment/rerun` `{ "caseId": "...", "actorId": "ops-user" }`
+- `POST /api/internal/reference/layers` (manifest-driven reference import)
 
 ## Confidence and Provenance
 
@@ -134,5 +137,5 @@ npm run import:reference-gis
 3. Expand NPS document extraction pipeline (HTML selectors + PDF text parser before OCR fallback).
 4. Add NCMEC poster/feed adapter with poster provenance semantics.
 5. Add reference GIS ingestion tables (`gis_roads`, `gis_trails`, `gis_hydro`, `gis_boundaries`, DEM tiles).
-6. Add contradiction tracking primitives in canonical merge layer.
-7. Add operator timeline + map overlays in admin UI.
+6. Expand FGDB read support via GDAL-enabled environments and integration coverage.
+7. Add middleware-backed authentication so actor identity is sourced from auth context, not request body/header.

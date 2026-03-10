@@ -213,6 +213,7 @@ CREATE TABLE reconciliation_decision (
   previous_value JSONB,
   new_value JSONB,
   confidence NUMERIC(5,4),
+  actor_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -243,6 +244,10 @@ CREATE TABLE reference_layer_version (
   effective_version TEXT NOT NULL,
   feature_count INT NOT NULL DEFAULT 0,
   geometry_type_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  input_format TEXT NOT NULL DEFAULT 'geojson',
+  layer_name TEXT,
+  source_paths JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_srid INT,
   provenance_notes TEXT,
   UNIQUE(layer_type, effective_version)
 );
@@ -259,6 +264,7 @@ CREATE TABLE case_conflict (
   conflict_type TEXT NOT NULL,
   source_record_ids UUID[] NOT NULL DEFAULT '{}',
   competing_values JSONB NOT NULL,
+  normalized_competing_values JSONB,
   severity TEXT NOT NULL,
   review_status TEXT NOT NULL DEFAULT 'unreviewed',
   reviewed_by TEXT,
@@ -266,10 +272,22 @@ CREATE TABLE case_conflict (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE operator_action_audit (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id TEXT NOT NULL,
+  action_type TEXT NOT NULL,
+  target_entity_type TEXT NOT NULL,
+  target_entity_id TEXT,
+  notes TEXT,
+  context JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX case_conflict_case_idx ON case_conflict(case_id, created_at DESC);
 CREATE INDEX case_conflict_review_idx ON case_conflict(review_status, severity);
 CREATE INDEX environment_snapshot_stale_idx ON environment_snapshot(stale_reference_data, captured_at DESC);
 CREATE INDEX reference_layer_version_layer_idx ON reference_layer_version(layer_type, imported_at DESC);
+CREATE INDEX operator_action_audit_actor_idx ON operator_action_audit(actor_id, created_at DESC);
 
 CREATE INDEX source_record_key_idx ON source_record(source_record_key);
 CREATE INDEX source_record_hash_idx ON source_record(record_hash);

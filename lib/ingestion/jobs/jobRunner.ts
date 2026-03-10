@@ -5,6 +5,7 @@ import { demoCases } from "@/lib/ingestion/demoStore";
 import { persistAdapterResult } from "@/lib/ingestion/persistence/persistAdapterResult";
 import { AdapterResult } from "@/lib/ingestion/types";
 import { recordHash } from "@/lib/ingestion/utils/hash";
+import { recordOperatorAction } from "@/lib/operatorAudit";
 
 export type RunIngestionJobInput = {
   jobType: string;
@@ -89,14 +90,14 @@ export async function runIngestionJob(input: RunIngestionJobInput) {
   }
 }
 
-export async function rerunEnrichmentForCase(caseId: string) {
+export async function rerunEnrichmentForCase(caseId: string, actorId = "internal-operator") {
   if (!db) {
     const found = demoCases.find((item) => item.id === caseId);
     if (!found) return { ok: false, message: "case not found" };
     const pointWkt = found.locations?.find((location) => location.geometryWkt)?.geometryWkt;
     if (!pointWkt) return { ok: false, message: "no geometry available for enrichment" };
     const enrichment = await enrichLocationFromPointWkt(pointWkt);
-    return { ok: true, caseId, reEnriched: 1, enrichment };
+    return { ok: true, caseId, reEnriched: 1, enrichment, actorId };
   }
 
   const locations = await db.query(
@@ -141,26 +142,29 @@ export async function rerunEnrichmentForCase(caseId: string) {
     count += 1;
   }
 
-  return { ok: true, caseId, reEnriched: count };
+  await recordOperatorAction({ actorId, actionType: "rerun_enrichment_case", targetEntityType: "case_canonical", targetEntityId: caseId, context: { reEnriched: count } });
+  return { ok: true, caseId, reEnriched: count, actorId };
 }
 
-export async function rerunEnrichmentForStale() {
+export async function rerunEnrichmentForStale(actorId = "internal-operator") {
   if (!db) return { ok: false, message: "DATABASE_URL required" };
   await markStaleEnvironmentSnapshots();
   const stale = await db.query(`SELECT DISTINCT case_id FROM environment_snapshot WHERE stale_reference_data = true AND case_id IS NOT NULL`);
   let cases = 0;
   for (const row of stale.rows) {
-    await rerunEnrichmentForCase(row.case_id);
+    await rerunEnrichmentForCase(row.case_id, actorId);
     cases += 1;
   }
-  return { ok: true, cases };
+  await recordOperatorAction({ actorId, actionType: "rerun_enrichment_stale", targetEntityType: "environment_snapshot", context: { cases } });
+  return { ok: true, cases, actorId };
 }
 
-export async function rerunEnrichmentForBatch(caseIds: string[]) {
+export async function rerunEnrichmentForBatch(caseIds: string[], actorId = "internal-operator") {
   let cases = 0;
   for (const caseId of caseIds) {
-    const res = await rerunEnrichmentForCase(caseId);
+    const res = await rerunEnrichmentForCase(caseId, actorId);
     if (res.ok) cases += 1;
   }
-  return { ok: true, cases };
+  await recordOperatorAction({ actorId, actionType: "rerun_enrichment_batch", targetEntityType: "case_canonical", context: { caseIds, cases } });
+  return { ok: true, cases, actorId };
 }
