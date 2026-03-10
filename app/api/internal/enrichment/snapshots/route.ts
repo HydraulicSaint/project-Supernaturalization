@@ -3,6 +3,12 @@ import { listSpatialEnrichmentSnapshots } from "@/lib/repositories/ingestionRuns
 
 export async function GET(request: NextRequest) {
   const stale = request.nextUrl.searchParams.get("stale") ?? undefined;
-  const data = await listSpatialEnrichmentSnapshots({ stale });
-  return NextResponse.json({ data });
+  const search = request.nextUrl.searchParams;
+  return NextResponse.json(
+    await listSpatialEnrichmentSnapshots({
+      stale,
+      limit: search.get("limit") ? Number(search.get("limit")) : undefined,
+      offset: search.get("offset") ? Number(search.get("offset")) : undefined
+    })
+  );
 }

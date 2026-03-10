@@ -2,11 +2,15 @@
 
 ## Reference-layer import/versioning
 
-1. Prepare a manifest file (see `fixtures/gis/reference_manifest.json`) with:
-   - `sourceName`
-   - `effectiveVersion`
-   - `provenanceNotes`
-   - per-layer GeoJSON file entries (`hydrography`, `roads`, `trails`, `admin_boundaries`, `protected_areas`)
+1. Prepare a manifest file (see `fixtures/gis/reference_manifest.json`) with per-layer entries including:
+   - `layer_type`
+   - `source_name`
+   - `effective_version`
+   - `input_format` (`geojson`, `shapefile`, `fgdb`)
+   - `source_paths`
+   - optional `layer_name` for multi-layer sources
+   - optional `source_srid`
+   - `provenance_notes`
 2. Run import:
    - `npm run import:reference-gis -- fixtures/gis/reference_manifest.json`
 3. Validate inventory/history:
@@ -15,7 +19,8 @@
    - deterministic by `(layer_type, effective_version)`
    - repeated import of same version replaces features for that version id
    - spatial indexes remain at table level
-   - GeoJSON is supported now; shapefile/other formats are intentionally deferred but importer is manifest-driven for extension.
+   - GeoJSON and shapefile are supported now via the same manifest path.
+   - FGDB receives structured unsupported issues in current runtime (unless GDAL/ogr2ogr is added).
 
 ## Re-enrichment workflow
 
@@ -50,9 +55,15 @@ Extraction outputs include:
 
 Conflicts are persisted to `case_conflict` and surfaced in API/admin views.
 Current conflict primitives:
-- conflicting status
-- conflicting missing date
-- conflicting location description/narrative
+- conflicting status, missing date, location description/narrative
+- conflicting demographics: age, sex/gender, race/ethnicity, height, weight
+- conflicting outcomes: found alive/deceased and recovery/resolution-level disagreement
+- conflicting identifiers/jurisdiction: case identifier mismatch and park disagreement
+
+Storage behavior:
+- directly observed competing values are persisted in `competing_values`
+- normalized counterparts are persisted in `normalized_competing_values`
+- system does not auto-resolve contradictions
 
 Review workflow:
 - list: `GET /api/internal/conflicts`
@@ -62,19 +73,31 @@ Review workflow:
 ## Operator QA review actions
 
 - mark ingestion issue reviewed:
-  - `PATCH /api/internal/ingestion/issues {"issueId":"..."}`
+  - `PATCH /api/internal/ingestion/issues {"issueId":"...","reviewedBy":"ops-user"}`
 - mark conflict reviewed:
-  - `PATCH /api/internal/conflicts {"conflictId":"..."}`
+  - `PATCH /api/internal/conflicts {"conflictId":"...","reviewedBy":"ops-user"}`
 - trigger re-enrichment:
   - endpoints listed above
 - trigger document ingestion from URL/fixture manifest:
   - `POST /api/internal/ingestion/documents`
 
+Audit identity:
+- actor identity can be passed in `reviewedBy`/`actorId` request body fields or `x-operator-id` header
+- actor-linked events are persisted to `operator_action_audit`
+
+## Internal queue usage
+
+- issues queue: `GET /api/internal/ingestion/issues?reviewed=unreviewed&sort=severity&limit=50&offset=0`
+- conflicts queue: `GET /api/internal/conflicts?reviewStatus=unreviewed&sort=severity&limit=50&offset=0`
+- stale enrichment queue: `GET /api/internal/enrichment/snapshots?stale=true&limit=50&offset=0`
+- low-confidence extractions: `GET /api/internal/source-extractions?confidenceMax=0.75&limit=50&offset=0`
+- recent reconciliation decisions: `GET /api/internal/ingestion/decisions?limit=50&offset=0`
+
 ## Intentionally deferred (this phase)
 
 - direct canonical-field editing UI/actions
 - OCR workflow in ingestion critical path
-- shapefile conversion pipeline
+- FGDB full read/import in environments without GDAL support
 - automated contradiction resolution (operators review; system does not silently overwrite)
 
 ## Recommended next priorities

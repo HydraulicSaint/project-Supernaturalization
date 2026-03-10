@@ -56,6 +56,9 @@ export type CanonicalCandidate = {
   missingFrom?: string;
   missingTo?: string;
   caseStatus?: string;
+  outcome?: string;
+  foundAt?: string;
+  recoveryLocation?: string;
   narrativeSummary?: string;
   sourceConfidence?: number;
   completenessScore?: number;

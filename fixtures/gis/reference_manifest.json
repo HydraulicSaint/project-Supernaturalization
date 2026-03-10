@@ -1,12 +1,44 @@
 {
-  "sourceName": "usgs_nps_demo",
-  "effectiveVersion": "2026.03.01",
-  "provenanceNotes": "Deterministic fixture import for local development",
-  "files": [
-    { "layerType": "hydrography", "file": "fixtures/gis/layers/hydrography.geojson" },
-    { "layerType": "roads", "file": "fixtures/gis/layers/roads.geojson" },
-    { "layerType": "trails", "file": "fixtures/gis/layers/trails.geojson" },
-    { "layerType": "admin_boundaries", "file": "fixtures/gis/layers/admin_boundaries.geojson" },
-    { "layerType": "protected_areas", "file": "fixtures/gis/layers/protected_areas.geojson" }
+  "layers": [
+    {
+      "layer_type": "hydrography",
+      "source_name": "usgs_nps_demo",
+      "effective_version": "2026.03.01",
+      "input_format": "geojson",
+      "source_paths": ["fixtures/gis/layers/hydrography.geojson"],
+      "provenance_notes": "Deterministic fixture import for local development"
+    },
+    {
+      "layer_type": "roads",
+      "source_name": "usgs_nps_demo",
+      "effective_version": "2026.03.01",
+      "input_format": "geojson",
+      "source_paths": ["fixtures/gis/layers/roads.geojson"],
+      "provenance_notes": "Deterministic fixture import for local development"
+    },
+    {
+      "layer_type": "trails",
+      "source_name": "usgs_nps_demo",
+      "effective_version": "2026.03.01",
+      "input_format": "geojson",
+      "source_paths": ["fixtures/gis/layers/trails.geojson"],
+      "provenance_notes": "Deterministic fixture import for local development"
+    },
+    {
+      "layer_type": "admin_boundaries",
+      "source_name": "usgs_nps_demo",
+      "effective_version": "2026.03.01",
+      "input_format": "geojson",
+      "source_paths": ["fixtures/gis/layers/admin_boundaries.geojson"],
+      "provenance_notes": "Deterministic fixture import for local development"
+    },
+    {
+      "layer_type": "protected_areas",
+      "source_name": "usgs_nps_demo",
+      "effective_version": "2026.03.01",
+      "input_format": "geojson",
+      "source_paths": ["fixtures/gis/layers/protected_areas.geojson"],
+      "provenance_notes": "Deterministic fixture import for local development"
+    }
   ]
 }
