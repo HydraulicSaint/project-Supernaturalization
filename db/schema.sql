@@ -117,6 +117,53 @@ CREATE TABLE environment_snapshot (
   confidence_score NUMERIC(5,4),
   provenance JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+CREATE UNIQUE INDEX environment_snapshot_unique_source_per_event_idx ON environment_snapshot(location_event_id, source);
+
+CREATE TABLE gis_hydrography (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feature_name TEXT,
+  feature_class TEXT,
+  source_dataset TEXT NOT NULL,
+  geom GEOMETRY(Geometry, 4326) NOT NULL
+);
+CREATE INDEX gis_hydrography_geom_gix ON gis_hydrography USING GIST (geom);
+
+CREATE TABLE gis_roads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  road_name TEXT,
+  road_class TEXT,
+  source_dataset TEXT NOT NULL,
+  geom GEOMETRY(Geometry, 4326) NOT NULL
+);
+CREATE INDEX gis_roads_geom_gix ON gis_roads USING GIST (geom);
+
+CREATE TABLE gis_trails (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trail_name TEXT,
+  trail_class TEXT,
+  source_dataset TEXT NOT NULL,
+  geom GEOMETRY(Geometry, 4326) NOT NULL
+);
+CREATE INDEX gis_trails_geom_gix ON gis_trails USING GIST (geom);
+
+CREATE TABLE gis_admin_boundaries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_type TEXT NOT NULL,
+  admin_name TEXT NOT NULL,
+  admin_code TEXT,
+  source_dataset TEXT NOT NULL,
+  geom GEOMETRY(MultiPolygon, 4326) NOT NULL
+);
+CREATE INDEX gis_admin_boundaries_geom_gix ON gis_admin_boundaries USING GIST (geom);
+
+CREATE TABLE gis_protected_areas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  unit_name TEXT NOT NULL,
+  designation TEXT,
+  source_dataset TEXT NOT NULL,
+  geom GEOMETRY(MultiPolygon, 4326) NOT NULL
+);
+CREATE INDEX gis_protected_areas_geom_gix ON gis_protected_areas USING GIST (geom);
 
 CREATE TABLE derived_metric (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"layer":"hydrography","name":"Demo Creek","class":"stream"},"geometry":{"type":"LineString","coordinates":[[-97.78,30.26],[-97.77,30.27]]}},
+    {"type":"Feature","properties":{"layer":"roads","name":"Ranger Rd","class":"secondary"},"geometry":{"type":"LineString","coordinates":[[-97.775,30.261],[-97.765,30.262]]}},
+    {"type":"Feature","properties":{"layer":"trails","name":"Cedar Trail","class":"hiking"},"geometry":{"type":"LineString","coordinates":[[-97.774,30.264],[-97.768,30.269]]}},
+    {"type":"Feature","properties":{"layer":"admin_boundary","adminType":"state","adminName":"Texas","adminCode":"TX"},"geometry":{"type":"Polygon","coordinates":[[[-98,30],[-97,30],[-97,31],[-98,31],[-98,30]]]}},
+    {"type":"Feature","properties":{"layer":"protected_area","name":"Demo Preserve","designation":"state_park"},"geometry":{"type":"Polygon","coordinates":[[[-97.79,30.25],[-97.74,30.25],[-97.74,30.29],[-97.79,30.29],[-97.79,30.25]]]}}
+  ]
+}

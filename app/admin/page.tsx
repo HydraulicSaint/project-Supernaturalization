@@ -5,10 +5,12 @@ async function load<T>(path: string): Promise<T> {
 }
 
 export default async function AdminPage() {
-  const [cases, runs, issues] = await Promise.all([
+  const [cases, runs, issues, decisions, enrichment] = await Promise.all([
     load<any[]>("/api/internal/cases"),
     load<any[]>("/api/internal/ingestion/runs"),
-    load<any[]>("/api/internal/ingestion/issues")
+    load<any[]>("/api/internal/ingestion/issues"),
+    load<any[]>("/api/internal/ingestion/decisions"),
+    load<any[]>("/api/internal/enrichment/snapshots")
   ]);
 
   return (
@@ -20,6 +22,10 @@ export default async function AdminPage() {
       <pre>{JSON.stringify(runs.slice(0, 5), null, 2)}</pre>
       <h2>Issues ({issues.length})</h2>
       <pre>{JSON.stringify(issues.slice(0, 10), null, 2)}</pre>
+      <h2>Merge Decisions ({decisions.length})</h2>
+      <pre>{JSON.stringify(decisions.slice(0, 10), null, 2)}</pre>
+      <h2>Spatial Enrichment Snapshots ({enrichment.length})</h2>
+      <pre>{JSON.stringify(enrichment.slice(0, 10), null, 2)}</pre>
     </main>
   );
 }

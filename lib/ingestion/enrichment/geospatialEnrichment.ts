@@ -6,6 +6,7 @@ export type EnrichmentResult = {
   nearestWaterMeters?: number;
   elevationMeters?: number;
   adminMembership?: Record<string, unknown>;
+  protectedAreaMembership?: Record<string, unknown>;
   method: string;
 };
 
@@ -17,6 +18,7 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
       nearestWaterMeters: 900,
       elevationMeters: 1720,
       adminMembership: { state: "demo", county: "demo-county" },
+      protectedAreaMembership: { inProtectedArea: false },
       method: "demo-fallback"
     };
   }
@@ -26,9 +28,21 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
     SELECT
       (SELECT ST_Distance(p.geom::geography, r.geom::geography) FROM gis_roads r ORDER BY r.geom <-> p.geom LIMIT 1) AS nearest_road_m,
       (SELECT ST_Distance(p.geom::geography, t.geom::geography) FROM gis_trails t ORDER BY t.geom <-> p.geom LIMIT 1) AS nearest_trail_m,
-      (SELECT ST_Distance(p.geom::geography, h.geom::geography) FROM gis_hydro h ORDER BY h.geom <-> p.geom LIMIT 1) AS nearest_water_m,
-      (SELECT elevation_m FROM gis_dem ORDER BY geom <-> p.geom LIMIT 1) AS elevation_m,
-      (SELECT jsonb_build_object('state', b.state_name, 'unit', b.unit_name) FROM gis_boundaries b WHERE ST_Contains(b.geom, p.geom) LIMIT 1) AS admin_membership
+      (SELECT ST_Distance(p.geom::geography, h.geom::geography) FROM gis_hydrography h ORDER BY h.geom <-> p.geom LIMIT 1) AS nearest_water_m,
+      0::numeric AS elevation_m,
+      (SELECT coalesce(jsonb_object_agg(b.admin_type, b.admin_name), '{}'::jsonb)
+       FROM gis_admin_boundaries b
+       WHERE ST_Contains(b.geom, p.geom)) AS admin_membership,
+      (
+        SELECT jsonb_build_object(
+          'inProtectedArea', true,
+          'unitName', pa.unit_name,
+          'designation', pa.designation
+        )
+        FROM gis_protected_areas pa
+        WHERE ST_Contains(pa.geom, p.geom)
+        LIMIT 1
+      ) AS protected_membership
     FROM p;
   `;
 
@@ -40,6 +54,7 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
     nearestWaterMeters: Number(row.nearest_water_m || 0),
     elevationMeters: Number(row.elevation_m || 0),
     adminMembership: row.admin_membership || {},
+    protectedAreaMembership: row.protected_membership || { inProtectedArea: false },
     method: "postgis-nearest"
   };
 }

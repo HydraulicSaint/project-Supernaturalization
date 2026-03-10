@@ -1,11 +1,13 @@
 import { PoolClient } from "pg";
 
 import { db } from "@/lib/db";
+import { enrichLocationFromPointWkt } from "@/lib/ingestion/enrichment/geospatialEnrichment";
 import { recordHash } from "@/lib/ingestion/utils/hash";
 import { AdapterResult, CanonicalCandidate } from "@/lib/ingestion/types";
 
 type PersistOptions = {
   jobRunId?: string;
+  enrichLocation?: typeof enrichLocationFromPointWkt;
 };
 
 type PersistResult = {
@@ -14,6 +16,17 @@ type PersistResult = {
   canonicalCount: number;
   missingMarkedCount: number;
 };
+
+export function locationEventFingerprint(input: {
+  caseId: string;
+  eventType: string;
+  geometryWkt?: string;
+  reportedLocationText?: string;
+  eventTimeFrom?: string;
+  eventTimeTo?: string;
+}) {
+  return recordHash(input);
+}
 
 async function insertDecision(
   client: PoolClient,
@@ -72,6 +85,7 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
     throw new Error("DATABASE_URL is required for ingestion persistence");
   }
 
+  const enrichLocation = options.enrichLocation ?? enrichLocationFromPointWkt;
   const client = await db.connect();
   try {
     await client.query("BEGIN");
@@ -201,6 +215,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
           `INSERT INTO case_canonical
             (canonical_case_ref, display_name, demographics, missing_from, missing_to, case_status, narrative_summary, source_confidence, completeness_score, anomaly_tags, motif_tags, jurisdiction, agency, provenance, inferred_fields)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           ON CONFLICT (canonical_case_ref)
+           DO UPDATE SET updated_at = now()
            RETURNING id`,
           [
             candidate.canonicalCaseRef,
@@ -221,8 +237,10 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
           ]
         );
         caseId = inserted.rows[0].id as string;
-        decisionType = "new_canonical_case";
-        decisionRule = "no_existing_match";
+        if (!caseRes.rowCount) {
+          decisionType = "new_canonical_case";
+          decisionRule = "no_existing_match";
+        }
       } else {
         caseId = caseRes.rows[0].id as string;
         const updates = fieldUpdates(caseRes.rows[0], candidate);
@@ -280,14 +298,15 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
       }
 
       for (const location of candidate.locations ?? []) {
-        const fingerprint = recordHash({
+        const fingerprint = locationEventFingerprint({
           caseId,
-          sourceRecordId,
           eventType: location.eventType,
           geometryWkt: location.geometryWkt,
-          reportedLocationText: location.reportedLocationText
+          reportedLocationText: location.reportedLocationText,
+          eventTimeFrom: undefined,
+          eventTimeTo: undefined
         });
-        await client.query(
+        const locationRes = await client.query(
           `INSERT INTO location_event
             (case_id, source_record_id, event_type, reported_location_text, geometry, geometry_type, geom_method, precision_meters, location_confidence, confidence_score, is_centroid, provenance, event_fingerprint)
            VALUES (
@@ -297,9 +316,11 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
            )
            ON CONFLICT (event_fingerprint)
            DO UPDATE SET
+             source_record_id = COALESCE(location_event.source_record_id, EXCLUDED.source_record_id),
              confidence_score = EXCLUDED.confidence_score,
              precision_meters = EXCLUDED.precision_meters,
-             provenance = EXCLUDED.provenance`,
+             provenance = EXCLUDED.provenance
+           RETURNING id, ST_AsText(geometry) AS geometry_wkt`,
           [
             caseId,
             sourceRecordId ?? null,
@@ -316,6 +337,40 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
             fingerprint
           ]
         );
+
+        const persistedLocation = locationRes.rows[0] as { id: string; geometry_wkt: string | null };
+        if (persistedLocation?.geometry_wkt) {
+          const enrichment = await enrichLocation(persistedLocation.geometry_wkt);
+          await client.query(
+            `INSERT INTO environment_snapshot
+              (case_id, location_event_id, source, nearest_water_m, nearest_trail_m, nearest_road_m, elevation_m, admin_membership, park_membership, confidence_score, provenance)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT (location_event_id, source)
+             DO UPDATE SET
+               nearest_water_m = EXCLUDED.nearest_water_m,
+               nearest_trail_m = EXCLUDED.nearest_trail_m,
+               nearest_road_m = EXCLUDED.nearest_road_m,
+               elevation_m = EXCLUDED.elevation_m,
+               admin_membership = EXCLUDED.admin_membership,
+               park_membership = EXCLUDED.park_membership,
+               confidence_score = EXCLUDED.confidence_score,
+               provenance = EXCLUDED.provenance,
+               captured_at = now()`,
+            [
+              caseId,
+              persistedLocation.id,
+              "postgis_reference_layers",
+              enrichment.nearestWaterMeters ?? null,
+              enrichment.nearestTrailMeters ?? null,
+              enrichment.nearestRoadMeters ?? null,
+              enrichment.elevationMeters ?? null,
+              JSON.stringify(enrichment.adminMembership ?? {}),
+              JSON.stringify(enrichment.protectedAreaMembership ?? {}),
+              candidate.sourceConfidence ?? null,
+              JSON.stringify({ method: enrichment.method })
+            ]
+          );
+        }
       }
 
       canonicalCount += 1;

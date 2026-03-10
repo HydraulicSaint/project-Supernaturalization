@@ -9,6 +9,8 @@ import { recordHash } from "@/lib/ingestion/utils/hash";
 import { diffSnapshots } from "@/lib/ingestion/diff/snapshotDiff";
 import { mergeCanonicalCandidates } from "@/lib/ingestion/normalization/mergeCanonical";
 import { enrichLocationFromPointWkt } from "@/lib/ingestion/enrichment/geospatialEnrichment";
+import { buildIngestionJobKey } from "@/lib/ingestion/jobs/jobRunner";
+import { locationEventFingerprint } from "@/lib/ingestion/persistence/persistAdapterResult";
 
 const csv = fs.readFileSync(path.join(process.cwd(), "fixtures/namus/namus_tx_sample.csv"), "utf8");
 const rss = fs.readFileSync(path.join(process.cwd(), "fixtures/nps/nps_missing_feed.xml"), "utf8");
@@ -49,4 +51,42 @@ test("merge logic deterministic and non-destructive", () => {
 test("geospatial enrichment fallback returns metrics", async () => {
   const result = await enrichLocationFromPointWkt("POINT(-97.772 30.263)");
   assert.ok(result.nearestTrailMeters !== undefined);
+});
+
+test("simultaneous equivalent job execution resolves to one durable key", () => {
+  const payload = importNamusCsvSnapshot(csv, "TX");
+  const keys = Array.from({ length: 8 }, () =>
+    buildIngestionJobKey({
+      jobType: "snapshot_import",
+      sourceSystem: "namus",
+      payload
+    })
+  );
+
+  assert.equal(new Set(keys).size, 1);
+});
+
+test("canonical merge remains deterministic under merge-race ordering", () => {
+  const input = importNamusCsvSnapshot(csv, "TX").candidates;
+  const duplicated = [...input, ...input.map((candidate) => ({ ...candidate, sourceConfidence: 0.95 }))];
+
+  const shuffledA = [...duplicated].sort(() => (Math.random() > 0.5 ? 1 : -1));
+  const shuffledB = [...duplicated].sort(() => (Math.random() > 0.5 ? 1 : -1));
+
+  const mergedA = mergeCanonicalCandidates(shuffledA);
+  const mergedB = mergeCanonicalCandidates(shuffledB);
+  assert.deepEqual(mergedA, mergedB);
+});
+
+test("repeated location-event persistence fingerprints equivalent events consistently", () => {
+  const base = {
+    caseId: "abc-123",
+    eventType: "last_known",
+    geometryWkt: "POINT(-97.772 30.263)",
+    reportedLocationText: "Austin, TX"
+  };
+
+  const first = locationEventFingerprint(base);
+  const second = locationEventFingerprint({ ...base });
+  assert.equal(first, second);
 });

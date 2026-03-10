@@ -76,6 +76,12 @@ npm run import:sample
 npm test
 ```
 
+### 5) Load baseline GIS reference layers
+
+```bash
+npm run import:reference-gis
+```
+
 ## Ingestion and Reconciliation
 
 - Snapshot ingestion is modeled as **append-only snapshot + diff**, never perfect live-state.
@@ -91,6 +97,8 @@ npm test
 - `GET /api/internal/cases/:id`
 - `GET /api/internal/ingestion/runs`
 - `GET /api/internal/ingestion/issues`
+- `GET /api/internal/ingestion/decisions`
+- `GET /api/internal/enrichment/snapshots`
 - `POST /api/internal/enrichment/rerun` `{ "caseId": "..." }`
 
 ## Confidence and Provenance
@@ -128,4 +136,3 @@ npm test
 5. Add reference GIS ingestion tables (`gis_roads`, `gis_trails`, `gis_hydro`, `gis_boundaries`, DEM tiles).
 6. Add contradiction tracking primitives in canonical merge layer.
 7. Add operator timeline + map overlays in admin UI.
-
