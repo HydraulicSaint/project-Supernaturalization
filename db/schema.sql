@@ -115,12 +115,15 @@ CREATE TABLE environment_snapshot (
   park_membership JSONB NOT NULL DEFAULT '{}'::jsonb,
   land_water_class TEXT,
   confidence_score NUMERIC(5,4),
+  reference_layer_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  stale_reference_data BOOLEAN NOT NULL DEFAULT false,
   provenance JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE UNIQUE INDEX environment_snapshot_unique_source_per_event_idx ON environment_snapshot(location_event_id, source);
 
 CREATE TABLE gis_hydrography (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_version_id UUID,
   feature_name TEXT,
   feature_class TEXT,
   source_dataset TEXT NOT NULL,
@@ -130,6 +133,7 @@ CREATE INDEX gis_hydrography_geom_gix ON gis_hydrography USING GIST (geom);
 
 CREATE TABLE gis_roads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_version_id UUID,
   road_name TEXT,
   road_class TEXT,
   source_dataset TEXT NOT NULL,
@@ -139,6 +143,7 @@ CREATE INDEX gis_roads_geom_gix ON gis_roads USING GIST (geom);
 
 CREATE TABLE gis_trails (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_version_id UUID,
   trail_name TEXT,
   trail_class TEXT,
   source_dataset TEXT NOT NULL,
@@ -148,6 +153,7 @@ CREATE INDEX gis_trails_geom_gix ON gis_trails USING GIST (geom);
 
 CREATE TABLE gis_admin_boundaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_version_id UUID,
   admin_type TEXT NOT NULL,
   admin_name TEXT NOT NULL,
   admin_code TEXT,
@@ -158,6 +164,7 @@ CREATE INDEX gis_admin_boundaries_geom_gix ON gis_admin_boundaries USING GIST (g
 
 CREATE TABLE gis_protected_areas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_version_id UUID,
   unit_name TEXT NOT NULL,
   designation TEXT,
   source_dataset TEXT NOT NULL,
@@ -220,9 +227,49 @@ CREATE TABLE ingestion_issue (
   message TEXT NOT NULL,
   context JSONB NOT NULL DEFAULT '{}'::jsonb,
   recoverable BOOLEAN NOT NULL DEFAULT true,
+  review_status TEXT NOT NULL DEFAULT 'unreviewed',
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ
 );
+
+CREATE TABLE reference_layer_version (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  layer_source_name TEXT NOT NULL,
+  layer_type TEXT NOT NULL,
+  source_manifest TEXT NOT NULL,
+  imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  effective_version TEXT NOT NULL,
+  feature_count INT NOT NULL DEFAULT 0,
+  geometry_type_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  provenance_notes TEXT,
+  UNIQUE(layer_type, effective_version)
+);
+
+ALTER TABLE gis_hydrography ADD CONSTRAINT gis_hydrography_layer_version_fk FOREIGN KEY (layer_version_id) REFERENCES reference_layer_version(id);
+ALTER TABLE gis_roads ADD CONSTRAINT gis_roads_layer_version_fk FOREIGN KEY (layer_version_id) REFERENCES reference_layer_version(id);
+ALTER TABLE gis_trails ADD CONSTRAINT gis_trails_layer_version_fk FOREIGN KEY (layer_version_id) REFERENCES reference_layer_version(id);
+ALTER TABLE gis_admin_boundaries ADD CONSTRAINT gis_admin_boundaries_layer_version_fk FOREIGN KEY (layer_version_id) REFERENCES reference_layer_version(id);
+ALTER TABLE gis_protected_areas ADD CONSTRAINT gis_protected_areas_layer_version_fk FOREIGN KEY (layer_version_id) REFERENCES reference_layer_version(id);
+
+CREATE TABLE case_conflict (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID NOT NULL REFERENCES case_canonical(id) ON DELETE CASCADE,
+  conflict_type TEXT NOT NULL,
+  source_record_ids UUID[] NOT NULL DEFAULT '{}',
+  competing_values JSONB NOT NULL,
+  severity TEXT NOT NULL,
+  review_status TEXT NOT NULL DEFAULT 'unreviewed',
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX case_conflict_case_idx ON case_conflict(case_id, created_at DESC);
+CREATE INDEX case_conflict_review_idx ON case_conflict(review_status, severity);
+CREATE INDEX environment_snapshot_stale_idx ON environment_snapshot(stale_reference_data, captured_at DESC);
+CREATE INDEX reference_layer_version_layer_idx ON reference_layer_version(layer_type, imported_at DESC);
 
 CREATE INDEX source_record_key_idx ON source_record(source_record_key);
 CREATE INDEX source_record_hash_idx ON source_record(record_hash);

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getCurrentReferenceLayerSnapshot } from "@/lib/ingestion/enrichment/referenceLayers";
 
 export type EnrichmentResult = {
   nearestRoadMeters?: number;
@@ -8,6 +9,7 @@ export type EnrichmentResult = {
   adminMembership?: Record<string, unknown>;
   protectedAreaMembership?: Record<string, unknown>;
   method: string;
+  referenceLayerSnapshot?: Record<string, string>;
 };
 
 export async function enrichLocationFromPointWkt(pointWkt: string): Promise<EnrichmentResult> {
@@ -19,7 +21,8 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
       elevationMeters: 1720,
       adminMembership: { state: "demo", county: "demo-county" },
       protectedAreaMembership: { inProtectedArea: false },
-      method: "demo-fallback"
+      method: "demo-fallback",
+      referenceLayerSnapshot: { hydrography: "demo-v1", roads: "demo-v1", trails: "demo-v1", admin_boundaries: "demo-v1", protected_areas: "demo-v1" }
     };
   }
 
@@ -48,6 +51,8 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
 
   const { rows } = await db.query(sql, [pointWkt]);
   const row = rows[0] || {};
+  const referenceLayerSnapshot = await getCurrentReferenceLayerSnapshot();
+
   return {
     nearestRoadMeters: Number(row.nearest_road_m || 0),
     nearestTrailMeters: Number(row.nearest_trail_m || 0),
@@ -55,6 +60,7 @@ export async function enrichLocationFromPointWkt(pointWkt: string): Promise<Enri
     elevationMeters: Number(row.elevation_m || 0),
     adminMembership: row.admin_membership || {},
     protectedAreaMembership: row.protected_membership || { inProtectedArea: false },
-    method: "postgis-nearest"
+    method: "postgis-nearest",
+    referenceLayerSnapshot
   };
 }
