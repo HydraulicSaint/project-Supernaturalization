@@ -22,3 +22,19 @@ export async function listIngestionIssues() {
   const { rows } = await db.query(`SELECT * FROM ingestion_issue ORDER BY created_at DESC LIMIT 500`);
   return rows;
 }
+
+export async function listMergeDecisions() {
+  if (!db) return [];
+  const { rows } = await db.query(
+    `SELECT * FROM reconciliation_decision ORDER BY created_at DESC LIMIT 500`
+  );
+  return rows;
+}
+
+export async function listSpatialEnrichmentSnapshots() {
+  if (!db) return [];
+  const { rows } = await db.query(
+    `SELECT * FROM environment_snapshot WHERE source = 'postgis_reference_layers' ORDER BY captured_at DESC LIMIT 500`
+  );
+  return rows;
+}

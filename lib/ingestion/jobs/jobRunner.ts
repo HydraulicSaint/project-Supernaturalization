@@ -13,66 +13,83 @@ export type RunIngestionJobInput = {
   payload: AdapterResult;
 };
 
+export function buildIngestionJobKey(input: Pick<RunIngestionJobInput, "jobType" | "sourceSystem" | "payload">) {
+  return `${input.jobType}:${input.sourceSystem}:${recordHash(input.payload.snapshot)}`;
+}
+
 export async function runIngestionJob(input: RunIngestionJobInput) {
   if (!db) {
     throw new Error("DATABASE_URL is required for durable ingestion jobs");
   }
 
-  const jobKey = `${input.jobType}:${input.sourceSystem}:${recordHash(input.payload.snapshot)}`;
+  const jobKey = buildIngestionJobKey(input);
   const maxAttempts = Math.max(1, input.maxAttempts ?? 3);
 
-  const existingSuccess = await db.query(
-    `SELECT id, summary FROM ingestion_job_run WHERE job_key = $1 AND status = 'success' ORDER BY started_at DESC LIMIT 1`,
-    [jobKey]
-  );
-  if (existingSuccess.rowCount) {
+  const lockRes = await db.query(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, [jobKey]);
+  if (!lockRes.rows[0]?.locked) {
     return {
       status: "skipped",
-      reason: "already_succeeded",
-      runId: existingSuccess.rows[0].id,
-      summary: existingSuccess.rows[0].summary
+      reason: "equivalent_job_in_progress"
     };
   }
 
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const runRes = await db.query(
+  try {
+
+    const existingSuccess = await db.query(
+      `SELECT id, summary FROM ingestion_job_run WHERE job_key = $1 AND status = 'success' ORDER BY started_at DESC LIMIT 1`,
+      [jobKey]
+    );
+    if (existingSuccess.rowCount) {
+      return {
+        status: "skipped",
+        reason: "already_succeeded",
+        runId: existingSuccess.rows[0].id,
+        summary: existingSuccess.rows[0].summary
+      };
+    }
+
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const runRes = await db.query(
       `INSERT INTO ingestion_job_run (job_key, job_type, source_system, status, attempt, trigger_mode, summary)
        VALUES ($1,$2,$3,'running',$4,$5,$6)
        RETURNING id`,
       [jobKey, input.jobType, input.sourceSystem, attempt, input.triggerMode, JSON.stringify({})]
     );
-    const runId = runRes.rows[0].id as string;
+      const runId = runRes.rows[0].id as string;
 
-    try {
-      const persisted = await persistAdapterResult(input.payload, { jobRunId: runId });
+      try {
+        const persisted = await persistAdapterResult(input.payload, { jobRunId: runId });
       const summary = {
         snapshotId: persisted.snapshotId,
         recordCount: persisted.recordCount,
         canonicalCount: persisted.canonicalCount,
         missingMarkedCount: persisted.missingMarkedCount
       };
-      await db.query(
+        await db.query(
         `UPDATE ingestion_job_run
          SET status = 'success', finished_at = now(), summary = $2, error_message = NULL
          WHERE id = $1`,
         [runId, JSON.stringify(summary)]
       );
-      return { status: "success", runId, attempt, summary };
-    } catch (error) {
-      lastError = error;
-      const isLastAttempt = attempt >= maxAttempts;
-      await db.query(
+        return { status: "success", runId, attempt, summary };
+      } catch (error) {
+        lastError = error;
+        const isLastAttempt = attempt >= maxAttempts;
+        await db.query(
         `UPDATE ingestion_job_run
          SET status = $2, finished_at = now(), error_message = $3,
              summary = jsonb_build_object('retryable', $4, 'attempt', $5)
          WHERE id = $1`,
         [runId, isLastAttempt ? "failed" : "retrying", error instanceof Error ? error.message : String(error), !isLastAttempt, attempt]
-      );
+        );
+      }
     }
-  }
 
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  } finally {
+    await db.query(`SELECT pg_advisory_unlock(hashtext($1))`, [jobKey]);
+  }
 }
 
 export async function rerunEnrichmentForCase(caseId: string) {
