@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"adminType":"county","adminName":"Demo County","adminCode":"DC01"},"geometry":{"type":"Polygon","coordinates":[[[-98,30],[-98,31],[-97,31],[-97,30],[-98,30]]]}}]}

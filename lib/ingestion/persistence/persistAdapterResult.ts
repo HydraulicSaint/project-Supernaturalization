@@ -80,6 +80,32 @@ function fieldUpdates(existing: Record<string, unknown>, candidate: CanonicalCan
   return updates;
 }
 
+
+async function insertCaseConflict(
+  client: PoolClient,
+  input: {
+    caseId: string;
+    conflictType: string;
+    sourceRecordId?: string;
+    previousValue: unknown;
+    nextValue: unknown;
+    severity?: string;
+  }
+) {
+  if (input.previousValue === input.nextValue || input.previousValue == null || input.nextValue == null) return;
+  await client.query(
+    `INSERT INTO case_conflict (case_id, conflict_type, source_record_ids, competing_values, severity)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [
+      input.caseId,
+      input.conflictType,
+      input.sourceRecordId ? [input.sourceRecordId] : [],
+      JSON.stringify({ previous: input.previousValue, incoming: input.nextValue }),
+      input.severity ?? "medium"
+    ]
+  );
+}
+
 export async function persistAdapterResult(result: AdapterResult, options: PersistOptions = {}): Promise<PersistResult> {
   if (!db) {
     throw new Error("DATABASE_URL is required for ingestion persistence");
@@ -100,7 +126,7 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
     const snapshotRes = await client.query(
       `INSERT INTO source_snapshot
         (source_system, source_channel, ingestion_mode, source_uri, state_batch, snapshot_at, raw_payload, raw_text, raw_binary_base64, content_hash, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (source_system, source_channel, content_hash)
        DO UPDATE SET snapshot_at = EXCLUDED.snapshot_at, metadata = EXCLUDED.metadata
        RETURNING id`,
@@ -253,6 +279,37 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
           await client.query(`UPDATE case_canonical SET ${setClause} WHERE id = $1`, values);
 
           for (const [field, newValue] of Object.entries(updates)) {
+            const previousValue = caseRes.rows[0][field];
+            if (field === "case_status") {
+              await insertCaseConflict(client, {
+                caseId,
+                sourceRecordId,
+                conflictType: "conflicting_status",
+                previousValue,
+                nextValue: newValue,
+                severity: "high"
+              });
+            }
+            if (field === "missing_from") {
+              await insertCaseConflict(client, {
+                caseId,
+                sourceRecordId,
+                conflictType: "conflicting_missing_date",
+                previousValue,
+                nextValue: newValue,
+                severity: "high"
+              });
+            }
+            if (field === "narrative_summary") {
+              await insertCaseConflict(client, {
+                caseId,
+                sourceRecordId,
+                conflictType: "conflicting_location_description",
+                previousValue,
+                nextValue: newValue,
+                severity: "medium"
+              });
+            }
             await insertDecision(client, {
               jobRunId: options.jobRunId,
               snapshotId,
@@ -343,8 +400,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
           const enrichment = await enrichLocation(persistedLocation.geometry_wkt);
           await client.query(
             `INSERT INTO environment_snapshot
-              (case_id, location_event_id, source, nearest_water_m, nearest_trail_m, nearest_road_m, elevation_m, admin_membership, park_membership, confidence_score, provenance)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              (case_id, location_event_id, source, nearest_water_m, nearest_trail_m, nearest_road_m, elevation_m, admin_membership, park_membership, confidence_score, reference_layer_snapshot, stale_reference_data, provenance)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
              ON CONFLICT (location_event_id, source)
              DO UPDATE SET
                nearest_water_m = EXCLUDED.nearest_water_m,
@@ -354,6 +411,8 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
                admin_membership = EXCLUDED.admin_membership,
                park_membership = EXCLUDED.park_membership,
                confidence_score = EXCLUDED.confidence_score,
+               reference_layer_snapshot = EXCLUDED.reference_layer_snapshot,
+               stale_reference_data = false,
                provenance = EXCLUDED.provenance,
                captured_at = now()`,
             [
@@ -367,7 +426,9 @@ export async function persistAdapterResult(result: AdapterResult, options: Persi
               JSON.stringify(enrichment.adminMembership ?? {}),
               JSON.stringify(enrichment.protectedAreaMembership ?? {}),
               candidate.sourceConfidence ?? null,
-              JSON.stringify({ method: enrichment.method })
+              JSON.stringify(enrichment.referenceLayerSnapshot ?? {}),
+              false,
+              JSON.stringify({ method: enrichment.method, layerSnapshot: enrichment.referenceLayerSnapshot ?? {} })
             ]
           );
         }

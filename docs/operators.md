@@ -1,40 +1,86 @@
 # Operator Runbook
 
-## Importing snapshots
+## Reference-layer import/versioning
 
-1. Place incoming source files under a dated intake folder.
-2. Run adapter-specific import command (sample: `npm run import:sample`).
-3. Verify snapshot metadata and issues through:
-   - `GET /api/internal/ingestion/runs`
-   - `GET /api/internal/ingestion/issues`
-   - `GET /api/internal/ingestion/decisions`
-   - `GET /api/internal/enrichment/snapshots`
+1. Prepare a manifest file (see `fixtures/gis/reference_manifest.json`) with:
+   - `sourceName`
+   - `effectiveVersion`
+   - `provenanceNotes`
+   - per-layer GeoJSON file entries (`hydrography`, `roads`, `trails`, `admin_boundaries`, `protected_areas`)
+2. Run import:
+   - `npm run import:reference-gis -- fixtures/gis/reference_manifest.json`
+3. Validate inventory/history:
+   - `GET /api/internal/reference/layers`
+4. Import behavior notes:
+   - deterministic by `(layer_type, effective_version)`
+   - repeated import of same version replaces features for that version id
+   - spatial indexes remain at table level
+   - GeoJSON is supported now; shapefile/other formats are intentionally deferred but importer is manifest-driven for extension.
 
-## Baseline GIS reference-layer ETL
+## Re-enrichment workflow
 
-1. Load baseline fixtures into PostGIS tables:
-   - `npm run import:reference-gis`
-2. Confirm feature-layer rows in:
-   - `gis_hydrography`
-   - `gis_roads`
-   - `gis_trails`
-   - `gis_admin_boundaries`
-   - `gis_protected_areas`
+- Enrichment snapshots persist a `reference_layer_snapshot` and `stale_reference_data` flag.
+- Stale detection compares stored layer versions to current latest versions per layer type.
+- Trigger paths:
+  - single case: `POST /api/internal/enrichment/rerun {"caseId":"..."}`
+  - batch cases: `POST /api/internal/enrichment/rerun {"mode":"batch","caseIds":["..."]}`
+  - all stale: `POST /api/internal/enrichment/rerun {"mode":"stale"}`
+- Review stale rows:
+  - `GET /api/internal/enrichment/snapshots?stale=true`
 
-## Reconciliation behavior
+## NPS/public document extraction
 
-- Every run creates a new `source_snapshot` candidate state.
-- `source_record.record_hash` is compared to prior snapshot state by record key.
-- Missing records are marked as no longer visible; canonical cases are retained.
-- Equivalent concurrent jobs are serialized via advisory lock keyed by durable job key.
+Supported now:
+- HTML pages
+- text-extractable PDFs
 
-## Confidence/provenance inspection
+Not in critical path:
+- OCR (deferred)
 
-- Case/source confidence appears in canonical payloads and case-source links.
-- Location confidence uses explicit ladder values; centroid approximations are flagged.
-- Derived/enrichment outputs include provenance JSON for method/source traceability.
+Document ingestion endpoint:
+- `POST /api/internal/ingestion/documents`
+- accepts URL manifest entries and optional `fixturePath` for local operator-driven ingestion/testing.
 
-## Failure handling
+Extraction outputs include:
+- confidence per field
+- explicit inferred-vs-direct separation in provenance
+- structured ingestion issues for partial parse misses
 
-- Parsing and field confidence issues should be captured in `ingestion_issue`.
-- Issues are recoverable by default and should not fail whole ingestion jobs unless configured.
+## Contradictions/conflicts
+
+Conflicts are persisted to `case_conflict` and surfaced in API/admin views.
+Current conflict primitives:
+- conflicting status
+- conflicting missing date
+- conflicting location description/narrative
+
+Review workflow:
+- list: `GET /api/internal/conflicts`
+- filter: `reviewStatus`, `severity`, `caseId`
+- mark reviewed: `PATCH /api/internal/conflicts {"conflictId":"..."}`
+
+## Operator QA review actions
+
+- mark ingestion issue reviewed:
+  - `PATCH /api/internal/ingestion/issues {"issueId":"..."}`
+- mark conflict reviewed:
+  - `PATCH /api/internal/conflicts {"conflictId":"..."}`
+- trigger re-enrichment:
+  - endpoints listed above
+- trigger document ingestion from URL/fixture manifest:
+  - `POST /api/internal/ingestion/documents`
+
+## Intentionally deferred (this phase)
+
+- direct canonical-field editing UI/actions
+- OCR workflow in ingestion critical path
+- shapefile conversion pipeline
+- automated contradiction resolution (operators review; system does not silently overwrite)
+
+## Recommended next priorities
+
+1. Add shapefile/FGDB import adapters feeding the same manifest model.
+2. Expand conflict primitives for demographics/outcome with structured value normalizers.
+3. Add operator-side pagination and drilldown views for large issue/conflict queues.
+4. Add audit actor identity propagation from internal auth context.
+5. Introduce offline OCR sidecar for PDF fallback with explicit provenance separation.
