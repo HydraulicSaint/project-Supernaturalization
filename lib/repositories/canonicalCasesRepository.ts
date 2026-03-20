@@ -8,6 +8,70 @@ type Filters = {
   confidenceMin?: number;
 };
 
+function buildDemoCaseEvidence(caseId: string) {
+  const demoCase = demoCases.find((c) => c.id === caseId || c.canonicalCaseRef === caseId);
+  if (!demoCase) return null;
+
+  const links = [
+    {
+      id: `${demoCase.id}-source-link`,
+      case_id: demoCase.id,
+      source_record_id: demoCase.sourceCaseId,
+      source_system: demoCase.sourceSystem,
+      source_channel: demoCase.provenance?.source ?? "demo",
+      parsed_payload: {
+        display_name: demoCase.displayName,
+        narrative_summary: demoCase.narrativeSummary,
+        source_case_id: demoCase.sourceCaseId,
+        jurisdiction: demoCase.jurisdiction,
+        agency: demoCase.agency
+      }
+    }
+  ];
+
+  const locations = (demoCase.locations ?? []).map((location, index) => ({
+    id: `${demoCase.id}-location-${index + 1}`,
+    case_id: demoCase.id,
+    event_type: location.eventType,
+    reported_location_text: location.reportedLocationText,
+    geometry_wkt: location.geometryWkt,
+    geom_method: location.geomMethod,
+    precision_meters: location.precisionMeters,
+    confidence_score: demoCase.sourceConfidence,
+    provenance: {
+      direct_values: location,
+      normalized_source: demoCase.provenance
+    },
+    created_at: demoCase.missingFrom
+  }));
+
+  const environment = [
+    {
+      id: `${demoCase.id}-environment-1`,
+      case_id: demoCase.id,
+      source: "postgis_reference_layers",
+      captured_at: new Date().toISOString(),
+      confidence_score: demoCase.sourceConfidence,
+      stale_reference_data: false,
+      reference_layer_snapshot: {
+        hydrography: "demo-v1",
+        roads: "demo-v1",
+        trails: "demo-v1",
+        admin_boundaries: "demo-v1",
+        protected_areas: "demo-v1"
+      },
+      park_membership: { parkUnit: demoCase.agency?.primary ?? "Unknown" },
+      admin_membership: demoCase.jurisdiction,
+      provenance: {
+        source: "demo_enrichment",
+        note: "Demo-mode enrichment snapshot generated from canonical case fixture."
+      }
+    }
+  ];
+
+  return { case: demoCase, links, locations, environment };
+}
+
 export async function listCanonicalCases(filters: Filters) {
   if (!db) {
     return demoCases.filter((c) => {
@@ -44,7 +108,7 @@ export async function listCanonicalCases(filters: Filters) {
 
 export async function getCanonicalCase(caseId: string) {
   if (!db) {
-    return demoCases.find((c) => c.id === caseId || c.canonicalCaseRef === caseId) ?? null;
+    return buildDemoCaseEvidence(caseId);
   }
 
   const caseResult = await db.query(`SELECT * FROM case_canonical WHERE id = $1 OR canonical_case_ref = $1`, [caseId]);
