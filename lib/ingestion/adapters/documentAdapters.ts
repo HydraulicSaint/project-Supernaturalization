@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import pdf from "pdf-parse";
-
 import { AdapterResult, CanonicalCandidate, IngestionIssueInput, ParsedSourceRecord } from "@/lib/ingestion/types";
 
 type ExtractedField = {
@@ -165,6 +163,7 @@ export function importHtmlDocument(html: string, sourceUri: string): AdapterResu
 export async function importPdfDocument(base64Pdf: string, sourceUri: string): Promise<AdapterResult> {
   const pdfBuffer = Buffer.from(base64Pdf, "base64");
   try {
+    const { default: pdf } = await import("pdf-parse");
     const data = await pdf(pdfBuffer);
     return toAdapterResult(data.text, sourceUri, "pdf", { parser: "pdf-parse-v1", pages: data.numpages });
   } catch (error) {

@@ -1,5 +1,78 @@
 # Operator Runbook
 
+## Internal UX/navigation overview
+
+The internal admin/operator experience is now organized around operator workflows instead of raw tables:
+
+- `/admin` → **Evidence Board**
+  - top summary strip for unreviewed issues, unreviewed conflicts, stale enrichment, low-confidence extractions, recent operator actions, and latest ingestion activity
+  - high-signal action panels with preview rows and drilldown links
+- `/admin/issues` → **Review Issues**
+- `/admin/conflicts` → **Review Conflicts**
+- `/admin/stale-enrichment` → **Refresh Stale Enrichment**
+- `/admin/recent-changes` → **Inspect Recent Changes**
+- `/admin/cases` → **Browse Cases**
+- `/admin/reference-layers` → **Reference Layers**
+
+Case drilldowns at `/admin/cases/[id]` are ordered as an evidence chain:
+1. case summary/header
+2. active issues/conflicts
+3. source records / evidence sources
+4. reconciliation decisions
+5. location events
+6. environment/enrichment snapshots with layer-version provenance
+7. operator actions/history
+
+## Intended operator workflow through the evidence board
+
+1. Start at `/admin` and scan the summary strip.
+2. Open the most urgent panel:
+   - **Review Issues** for ingestion and extraction QA blockers
+   - **Review Conflicts** for contradictory evidence
+   - **Refresh Stale Enrichment** when layer versions changed
+   - **Inspect Recent Changes** to understand what changed before re-entering a queue
+3. From a queue row, open the linked case evidence page.
+4. Use the case anchor navigation to move through the evidence chain without losing provenance.
+5. Review direct values, normalized values, source payloads, reconciliation decisions, and audit history before taking action.
+
+## Queue, drilldown, and review flow usage
+
+### Issues queue
+
+- list: `GET /api/internal/ingestion/issues?reviewed=unreviewed&sort=severity&limit=50&offset=0`
+- intended use:
+  - start with highest severity parser or ingestion problems
+  - inspect linked case/source context
+  - mark reviewed from the queue when the issue is understood and documented
+
+### Conflicts queue
+
+- list: `GET /api/internal/conflicts?reviewStatus=unreviewed&sort=severity&limit=50&offset=0`
+- intended use:
+  - open the linked case
+  - compare direct vs normalized values
+  - leave the contradiction visible; do not treat review as silent auto-resolution
+
+### Stale enrichment queue
+
+- list: `GET /api/internal/enrichment/snapshots?stale=true&limit=50&offset=0`
+- intended use:
+  - confirm which cases/snapshots are stale
+  - open the case drilldown to inspect stored layer-version provenance
+  - trigger case/batch/all-stale re-enrichment via the existing rerun endpoints when operationally appropriate
+
+### Recent changes
+
+- intended use:
+  - inspect recent reconciliation decisions
+  - inspect low-confidence extractions
+  - inspect operator actions and recent ingestion runs together
+  - use this page before and after queue work to maintain situational awareness
+
+### Case drilldowns
+
+Use `/admin/cases/[id]` when you need the complete evidence chain for a single case. The UX pass intentionally replaces JSON-heavy dumps with structured sections and expandable detail panels while keeping raw payloads and provenance one click away.
+
 ## Reference-layer import/versioning
 
 1. Prepare a manifest file (see `fixtures/gis/reference_manifest.json`) with per-layer entries including:
@@ -85,25 +158,21 @@ Audit identity:
 - actor identity can be passed in `reviewedBy`/`actorId` request body fields or `x-operator-id` header
 - actor-linked events are persisted to `operator_action_audit`
 
-## Internal queue usage
+## What was intentionally not changed in this UX phase
 
-- issues queue: `GET /api/internal/ingestion/issues?reviewed=unreviewed&sort=severity&limit=50&offset=0`
-- conflicts queue: `GET /api/internal/conflicts?reviewStatus=unreviewed&sort=severity&limit=50&offset=0`
-- stale enrichment queue: `GET /api/internal/enrichment/snapshots?stale=true&limit=50&offset=0`
-- low-confidence extractions: `GET /api/internal/source-extractions?confidenceMax=0.75&limit=50&offset=0`
-- recent reconciliation decisions: `GET /api/internal/ingestion/decisions?limit=50&offset=0`
-
-## Intentionally deferred (this phase)
-
-- direct canonical-field editing UI/actions
-- OCR workflow in ingestion critical path
-- FGDB full read/import in environments without GDAL support
-- automated contradiction resolution (operators review; system does not silently overwrite)
+- no public-facing product expansion
+- no speculative analytics, anomaly scoring, or paranormal framing
+- no backend architecture rewrite; only thin view-model and presentation helpers were added
+- no reduction in provenance, conflict visibility, or auditability
+- no direct canonical-field editing workflow
+- no OCR workflow in the ingestion critical path
+- no FGDB full read/import in environments without GDAL support
+- no automated contradiction resolution
 
 ## Recommended next priorities
 
-1. Add shapefile/FGDB import adapters feeding the same manifest model.
-2. Expand conflict primitives for demographics/outcome with structured value normalizers.
-3. Add operator-side pagination and drilldown views for large issue/conflict queues.
-4. Add audit actor identity propagation from internal auth context.
-5. Introduce offline OCR sidecar for PDF fallback with explicit provenance separation.
+1. Add richer queue filters/sort affordances bound to URL params for heavy operator throughput.
+2. Add authenticated operator identity wiring from internal auth/session context into review actions so UI feedback reflects the signed-in actor.
+3. Add rerun controls with explicit success/error to stale-enrichment and case pages.
+4. Expand case drilldowns with linked source-document previews where available.
+5. Add pagination controls and saved queue views for larger operational datasets.
