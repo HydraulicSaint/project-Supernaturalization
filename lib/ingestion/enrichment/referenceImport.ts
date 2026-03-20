@@ -4,6 +4,8 @@ import path from "node:path";
 import shapefile from "shapefile";
 
 import { db } from "@/lib/db";
+import type { AuthenticatedOperator } from "@/lib/auth";
+import { recordOperatorAction } from "@/lib/operatorAudit";
 
 export type LayerType = "hydrography" | "roads" | "trails" | "admin_boundaries" | "protected_areas";
 export type InputFormat = "geojson" | "shapefile" | "fgdb";
@@ -81,7 +83,7 @@ function normalizeValue(value: unknown) {
   return value;
 }
 
-export async function importReferenceLayersFromManifest(manifest: ReferenceManifest, actorId = "internal-operator") {
+export async function importReferenceLayersFromManifest(manifest: ReferenceManifest, actor: AuthenticatedOperator) {
   if (!db) throw new Error("DATABASE_URL is required");
   const results: Array<Record<string, unknown>> = [];
 
@@ -94,7 +96,7 @@ export async function importReferenceLayersFromManifest(manifest: ReferenceManif
         await client.query(
           `INSERT INTO ingestion_issue (severity, issue_type, message, context, recoverable, reviewed_by)
            VALUES ('warning', $1, $2, $3, true, $4)`,
-          [loaded.issue.issue_type, loaded.issue.message, JSON.stringify(loaded.issue.context ?? {}), actorId]
+          [loaded.issue.issue_type, loaded.issue.message, JSON.stringify(loaded.issue.context ?? {}), actor.username]
         );
         await client.query("COMMIT");
         results.push({ layer_type: entry.layer_type, status: "unsupported_or_malformed", issue: loaded.issue });
@@ -213,6 +215,15 @@ export async function importReferenceLayersFromManifest(manifest: ReferenceManif
       client.release();
     }
   }
+
+  await recordOperatorAction({
+    actorId: actor.operatorId,
+    actorDisplayName: actor.displayName,
+    authSource: actor.authSource,
+    actionType: "import_reference_manifest",
+    targetEntityType: "reference_layer_version",
+    context: { layerCount: manifest.layers.length, username: actor.username, statuses: results.map((r) => r.status) }
+  });
 
   return results;
 }

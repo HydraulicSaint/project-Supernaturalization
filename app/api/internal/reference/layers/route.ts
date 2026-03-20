@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listReferenceLayerInventory } from "@/lib/repositories/ingestionRunsRepository";
-import { resolveActorId } from "@/lib/operatorAudit";
+import { requireAuthenticatedOperator } from "@/lib/auth";
 import { importReferenceLayersFromManifest } from "@/lib/ingestion/enrichment/referenceImport";
 
 export async function GET() {
@@ -8,10 +8,12 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const { operator, response } = requireAuthenticatedOperator(request);
+  if (!operator) return response;
+
   const payload = await request.json();
   if (!payload?.layers || !Array.isArray(payload.layers)) {
     return NextResponse.json({ error: "manifest.layers[] required" }, { status: 400 });
   }
-  const actorId = resolveActorId(payload.actorId ?? request.headers.get("x-operator-id"));
-  return NextResponse.json({ data: await importReferenceLayersFromManifest(payload, actorId) });
+  return NextResponse.json({ data: await importReferenceLayersFromManifest(payload, operator) });
 }
