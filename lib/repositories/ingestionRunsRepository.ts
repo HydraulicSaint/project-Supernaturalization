@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { demoIssues, demoSnapshots } from "@/lib/ingestion/demoStore";
 import { listReferenceLayerVersions, markStaleEnvironmentSnapshots } from "@/lib/ingestion/enrichment/referenceLayers";
 import { recordOperatorAction } from "@/lib/operatorAudit";
+import type { AuthenticatedOperator } from "@/lib/auth";
 
 type QueueFilters = { limit?: number; offset?: number; sort?: string };
 const safeLimit = (n?: number) => Math.min(200, Math.max(1, n ?? 50));
@@ -30,10 +31,19 @@ export async function listIngestionIssues(filters: { severity?: string; reviewed
   return { data: rows, pagination: { limit, offset, hasMore: rows.length === limit } };
 }
 
-export async function markIssueReviewed(issueId: string, reviewedBy = "operator", notes?: string) {
+export async function markIssueReviewed(issueId: string, actor: AuthenticatedOperator, notes?: string) {
   if (!db) return { ok: false };
-  await db.query(`UPDATE ingestion_issue SET review_status = 'reviewed', reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [issueId, reviewedBy]);
-  await recordOperatorAction({ actorId: reviewedBy, actionType: "review_issue", targetEntityType: "ingestion_issue", targetEntityId: issueId, notes });
+  await db.query(`UPDATE ingestion_issue SET review_status = 'reviewed', reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [issueId, actor.username]);
+  await recordOperatorAction({
+    actorId: actor.operatorId,
+    actorDisplayName: actor.displayName,
+    authSource: actor.authSource,
+    actionType: "review_issue",
+    targetEntityType: "ingestion_issue",
+    targetEntityId: issueId,
+    notes,
+    context: { username: actor.username, role: actor.role }
+  });
   return { ok: true };
 }
 
@@ -73,10 +83,19 @@ export async function listConflicts(filters: { reviewStatus?: string; severity?:
   return { data: rows, pagination: { limit, offset, hasMore: rows.length === limit } };
 }
 
-export async function markConflictReviewed(conflictId: string, reviewedBy = "operator", notes?: string) {
+export async function markConflictReviewed(conflictId: string, actor: AuthenticatedOperator, notes?: string) {
   if (!db) return { ok: false };
-  await db.query(`UPDATE case_conflict SET review_status = 'reviewed', reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [conflictId, reviewedBy]);
-  await recordOperatorAction({ actorId: reviewedBy, actionType: "review_conflict", targetEntityType: "case_conflict", targetEntityId: conflictId, notes });
+  await db.query(`UPDATE case_conflict SET review_status = 'reviewed', reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [conflictId, actor.username]);
+  await recordOperatorAction({
+    actorId: actor.operatorId,
+    actorDisplayName: actor.displayName,
+    authSource: actor.authSource,
+    actionType: "review_conflict",
+    targetEntityType: "case_conflict",
+    targetEntityId: conflictId,
+    notes,
+    context: { username: actor.username, role: actor.role }
+  });
   return { ok: true };
 }
 
@@ -90,4 +109,37 @@ export async function listSourceExtractionReview(filters: { sourceType?: string;
   values.push(limit, offset);
   const { rows } = await db.query(`SELECT sr.id, sr.source_record_key, sr.parse_confidence, sr.parsed_payload, ss.source_uri, ss.source_channel, ss.snapshot_at FROM source_record sr JOIN source_snapshot ss ON ss.id = sr.snapshot_id WHERE ${clauses.join(" AND ")} ORDER BY sr.parse_confidence ASC, ss.snapshot_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
   return { data: rows, pagination: { limit, offset, hasMore: rows.length === limit } };
+}
+
+export async function listRecentOperatorActions(filters: QueueFilters = {}) {
+  if (!db) return { data: [], pagination: { limit: safeLimit(filters.limit), offset: 0, hasMore: false } };
+  const limit = safeLimit(filters.limit); const offset = Math.max(0, filters.offset ?? 0);
+  const { rows } = await db.query(
+    `SELECT oa.*, cc.canonical_case_ref
+     FROM operator_action_audit oa
+     LEFT JOIN case_canonical cc ON cc.id::text = oa.target_entity_id
+     ORDER BY oa.created_at DESC LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  return { data: rows, pagination: { limit, offset, hasMore: rows.length === limit } };
+}
+
+export async function listRecentActivitySummary() {
+  if (!db) return { ingestionRuns: [], reEnrichment: [], reconciliation: [], severeQueues: [] };
+  const [ingestionRuns, reEnrichment, reconciliation, severeIssues, severeConflicts] = await Promise.all([
+    db.query(`SELECT id, job_type, status, started_at, finished_at, summary, error_message FROM ingestion_job_run ORDER BY started_at DESC LIMIT 30`),
+    db.query(`SELECT * FROM operator_action_audit WHERE action_type LIKE 'rerun_enrichment_%' ORDER BY created_at DESC LIMIT 30`),
+    db.query(`SELECT * FROM reconciliation_decision ORDER BY created_at DESC LIMIT 30`),
+    db.query(`SELECT * FROM ingestion_issue WHERE severity = 'error' ORDER BY created_at DESC LIMIT 20`),
+    db.query(`SELECT * FROM case_conflict WHERE severity = 'high' ORDER BY created_at DESC LIMIT 20`)
+  ]);
+  return {
+    ingestionRuns: ingestionRuns.rows,
+    reEnrichment: reEnrichment.rows,
+    reconciliation: reconciliation.rows,
+    severeQueues: {
+      ingestionIssues: severeIssues.rows,
+      conflicts: severeConflicts.rows
+    }
+  };
 }

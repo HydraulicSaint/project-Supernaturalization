@@ -275,6 +275,8 @@ CREATE TABLE case_conflict (
 CREATE TABLE operator_action_audit (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   actor_id TEXT NOT NULL,
+  actor_display_name TEXT,
+  auth_source TEXT,
   action_type TEXT NOT NULL,
   target_entity_type TEXT NOT NULL,
   target_entity_id TEXT,
@@ -288,6 +290,18 @@ CREATE INDEX case_conflict_review_idx ON case_conflict(review_status, severity);
 CREATE INDEX environment_snapshot_stale_idx ON environment_snapshot(stale_reference_data, captured_at DESC);
 CREATE INDEX reference_layer_version_layer_idx ON reference_layer_version(layer_type, imported_at DESC);
 CREATE INDEX operator_action_audit_actor_idx ON operator_action_audit(actor_id, created_at DESC);
+
+CREATE TABLE internal_operator_account (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'operator',
+  auth_source TEXT NOT NULL DEFAULT 'local_password',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_login_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE INDEX source_record_key_idx ON source_record(source_record_key);
 CREATE INDEX source_record_hash_idx ON source_record(record_hash);

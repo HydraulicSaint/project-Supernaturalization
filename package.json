@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "import:sample": "tsx scripts/import-sample.ts",
-    "import:reference-gis": "tsx scripts/import-reference-gis.ts"
+    "import:reference-gis": "tsx scripts/import-reference-gis.ts",
+    "test:integration": "tsx --test tests/dbIntegration.test.ts"
   },
   "dependencies": {
     "@deck.gl/layers": "^9.0.27",

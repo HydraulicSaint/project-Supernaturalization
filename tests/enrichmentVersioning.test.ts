@@ -21,6 +21,6 @@ test("stale marker no-ops in demo mode", async () => {
 });
 
 test("batch re-enrichment path executes", async () => {
-  const result = await rerunEnrichmentForBatch(["case-001", "case-unknown"]);
+  const result = await rerunEnrichmentForBatch(["case-001", "case-unknown"], { operatorId: "test-actor", username: "tester", displayName: "Tester", role: "operator", authSource: "test" });
   assert.equal(result.ok, true);
 });

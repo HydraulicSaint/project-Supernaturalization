@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listConflicts, markConflictReviewed } from "@/lib/repositories/ingestionRunsRepository";
-import { resolveActorId } from "@/lib/operatorAudit";
+import { requireAuthenticatedOperator } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams;
@@ -15,8 +15,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const { operator, response } = requireAuthenticatedOperator(request);
+  if (!operator) return response;
+
   const body = await request.json();
   if (!body.conflictId) return NextResponse.json({ error: "conflictId required" }, { status: 400 });
-  const actorId = resolveActorId(body.reviewedBy ?? request.headers.get("x-operator-id"));
-  return NextResponse.json(await markConflictReviewed(body.conflictId, actorId, body.notes));
+  return NextResponse.json(await markConflictReviewed(body.conflictId, operator, body.notes));
 }
