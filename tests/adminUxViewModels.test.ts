@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { getAdminBoardViewModel, getCaseEvidenceViewModel } from "@/lib/admin/viewModels";
 import { QueueTable } from "@/components/admin/QueueTable";
 import AdminLayout from "@/app/admin/layout";
+import AdminCaseDetailPage from "@/app/admin/cases/[id]/page";
 
 test("admin board view model exposes summary cards and actionable panels", async () => {
   const model = await getAdminBoardViewModel();
@@ -50,6 +51,15 @@ test("case evidence view model returns major evidence sections in demo mode", as
   assert.ok(model?.summary.locationCount >= 1);
   assert.ok(Array.isArray(model?.environment));
   assert.ok(Array.isArray(model?.decisions));
+});
+
+test("case detail page renders the structured evidence drilldown", async () => {
+  const markup = renderToStaticMarkup(await AdminCaseDetailPage({ params: { id: "case-1" } }));
+
+  assert.match(markup, /Evidence-chain drilldown organized for review/);
+  assert.match(markup, /Evidence sources/);
+  assert.match(markup, /Operator audit trail/);
+  assert.doesNotMatch(markup, /Case not found/);
 });
 
 test("admin layout navigation stays within protected internal routes", () => {
