@@ -1,0 +1,17 @@
+.shell { position: relative; height: 100dvh; min-height: 540px; overflow: auto; background: #0c1b23; color: #d4e3df; }
+.map { position: absolute; inset: 0; }
+.header { position: relative; display: flex; justify-content: space-between; gap: 24px; padding: clamp(20px, 3vw, 60px); pointer-events: none; }
+.header label { pointer-events: auto; width: 180px; }
+.header small { letter-spacing: .22em; color: #86aba7; }
+.header h1 { font-size: clamp(32px, 3vw, 64px); font-weight: 300; letter-spacing: .3em; margin: 12px 0; }
+.panel { position: relative; margin: 0 24px 220px auto; padding: 20px; width: min(380px, calc(100% - 48px)); max-height: 50vh; overflow: auto; background: #0a171de8; border: 1px solid #38504e; }
+.panel p, .footer p { font-size: 14px; line-height: 1.5; }
+.panel details { padding: 10px 0; border-bottom: 1px solid #38504e; }
+.panel textarea { width: 100%; background: #0c1b23; color: #d4e3df; }
+.footer { position: absolute; bottom: 20px; left: 24px; right: 24px; width: fit-content; max-width: calc(100% - 48px); padding: 14px; background: #0a171de8; border: 1px solid #38504e; }
+.footer details { max-width: 650px; max-height: 26vh; overflow: auto; }
+.footer input { width: auto; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.shell button { background: #203b40; border: 1px solid #55716b; border-radius: 3px; }
+.shell summary { cursor: pointer; }
+@media (max-width: 640px) { .header { padding: 16px; } .header label { width: 125px; } .footer { left: 12px; right: 12px; max-width: calc(100% - 24px); } }
